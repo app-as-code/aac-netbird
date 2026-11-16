@@ -1,0 +1,39 @@
+# Combined NetBird Server Configuration
+# Rendered by the aac-template-engine from service.yml (schema_version 2).
+# Secrets are injected from the SSoT `secrets:` block at render time — do NOT
+# commit real values here.
+server:
+  listenAddress: ":80"
+  exposedAddress: "{{ vars.NETBIRD_EXPOSED_ADDRESS }}"
+  stunPorts:
+    - 3478
+  metricsPort: 9090
+  healthcheckAddress: ":9000"
+  logLevel: "info"
+  logFile: "console"
+
+  authSecret: "{{ secrets.NB_AUTH_SECRET }}"
+  dataDir: "/var/lib/netbird"
+
+  auth:
+    issuer: "{{ vars.NETBIRD_OIDC_ISSUER }}"
+{% if secrets.NB_SESSION_COOKIE_KEY and secrets.NB_SESSION_COOKIE_KEY != 'CHANGE_ME' %}
+    # Encrypts the reverse-proxy SSO session cookies. Without a stable key the
+    # session cannot be validated -> browser redirect loop on protected services.
+    # Only emitted when a real key is delivered from iac-controller (SSoT secrets).
+    sessionCookieEncryptionKey: "{{ secrets.NB_SESSION_COOKIE_KEY }}"
+{% endif %}
+    signKeyRefreshEnabled: true
+    dashboardRedirectURIs:
+      - "{{ vars.NETBIRD_DASHBOARD_REDIRECT_URI }}"
+      - "{{ vars.NETBIRD_DASHBOARD_SILENT_REDIRECT_URI }}"
+    cliRedirectURIs:
+      - "{{ vars.NETBIRD_CLI_REDIRECT_URI }}"
+
+  reverseProxy:
+    trustedHTTPProxies:
+      - "{{ vars.NB_TRUSTED_PROXY }}"
+
+  store:
+    engine: "sqlite"
+    encryptionKey: "{{ secrets.NB_STORE_ENCRYPTION_KEY }}"

@@ -1,0 +1,151 @@
+service:
+  name: aac-netbird
+  friendly_name: NetBird
+  image_repo: netbirdio/dashboard
+  image_tag: v2.92.0
+  description: NetBird self-hosted VPN mesh (Dashboard + Management/Signal/Relay/STUN)
+  icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/netbird.png
+  category: Management
+  stage: prod
+  hostname: netbird
+ports:
+- name: web
+  port: 80
+  protocol: TCP
+config:
+  domain_name: example.com
+  generate_hostname: false
+  integrations:
+    homepage:
+      enabled: true
+    autodns:
+      enabled: true
+    traefik:
+      enabled: true
+      cert_resolver: ionos
+      entrypoint: websecure
+      service_port: 80
+  schema_version: 2
+stage_overrides:
+  prod:
+    config:
+      generate_hostname: false
+    service:
+      hostname: netbird
+secrets:
+  NB_AUTH_SECRET: CHANGE_ME
+  NB_STORE_ENCRYPTION_KEY: CHANGE_ME
+  NB_SESSION_COOKIE_KEY: CHANGE_ME
+deployment_strategy:
+  main:
+    enabled: true
+    target_stage: prod
+  dev:
+    enabled: true
+    target_stage: dev
+  test:
+    enabled: false
+    target_stage: test
+  ansible-dev:
+    enabled: true
+    target_stage: dev
+  iac-dev:
+    enabled: true
+    target_stage: dev
+  template-dev:
+    enabled: true
+    target_stage: dev
+deployments:
+  docker_compose:
+    restart_policy: unless-stopped
+    host_base_path: /export/docker
+    networks_to_join:
+    - secured
+    environment:
+      NETBIRD_MGMT_API_ENDPOINT: '{{ vars.NETBIRD_MGMT_API_ENDPOINT }}'
+      NETBIRD_MGMT_GRPC_API_ENDPOINT: '{{ vars.NETBIRD_MGMT_GRPC_API_ENDPOINT }}'
+      AUTH_AUDIENCE: '{{ vars.AUTH_AUDIENCE }}'
+      AUTH_CLIENT_ID: '{{ vars.AUTH_CLIENT_ID }}'
+      AUTH_CLIENT_SECRET: '{{ vars.AUTH_CLIENT_SECRET }}'
+      AUTH_AUTHORITY: '{{ vars.AUTH_AUTHORITY }}'
+      USE_AUTH0: '{{ vars.USE_AUTH0 }}'
+      AUTH_SUPPORTED_SCOPES: '{{ vars.AUTH_SUPPORTED_SCOPES }}'
+      AUTH_REDIRECT_URI: '{{ vars.AUTH_REDIRECT_URI }}'
+      AUTH_SILENT_REDIRECT_URI: '{{ vars.AUTH_SILENT_REDIRECT_URI }}'
+      NGINX_SSL_PORT: '{{ vars.NGINX_SSL_PORT }}'
+      LETSENCRYPT_DOMAIN: '{{ vars.LETSENCRYPT_DOMAIN }}'
+      TZ: '{{ vars.TZ }}'
+dependencies:
+  server:
+    name: aac-netbird-server
+    image_repo: netbirdio/netbird-server
+    image_tag: 0.79.0
+    command:
+    - --config
+    - /etc/netbird/config.yaml
+    ports:
+    - name: stun
+      port: 3478
+      external_port: 3478
+      protocol: UDP
+    - name: proxy-grpc
+      port: 33073
+      external_port: 33073
+      protocol: TCP
+    networks_to_join:
+    - secured
+    volumes:
+      nb_data:
+        type: bind
+        target: /var/lib/netbird
+        description: Persistent NetBird server data (SQLite store, keys)
+      nb_config:
+        type: bind
+        target: /etc/netbird
+        description: Rendered config.yaml directory (see custom_templates/files/nb_config)
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: services-secured
+      traefik.http.routers.aac-netbird-grpc.rule: Host(`{{ vars.NETBIRD_DOMAIN }}`)
+        && (PathPrefix(`/signalexchange.SignalExchange/`) || PathPrefix(`/management.ManagementService/`)
+        || PathPrefix(`/management.ProxyService/`))
+      traefik.http.routers.aac-netbird-grpc.entrypoints: websecure
+      traefik.http.routers.aac-netbird-grpc.tls: 'true'
+      traefik.http.routers.aac-netbird-grpc.tls.certresolver: ionos
+      traefik.http.routers.aac-netbird-grpc.service: aac-netbird-server-h2c
+      traefik.http.routers.aac-netbird-grpc.priority: '100'
+      traefik.http.routers.aac-netbird-backend.rule: Host(`{{ vars.NETBIRD_DOMAIN
+        }}`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`) || PathPrefix(`/api`)
+        || PathPrefix(`/oauth2`))
+      traefik.http.routers.aac-netbird-backend.entrypoints: websecure
+      traefik.http.routers.aac-netbird-backend.tls: 'true'
+      traefik.http.routers.aac-netbird-backend.tls.certresolver: ionos
+      traefik.http.routers.aac-netbird-backend.service: aac-netbird-server
+      traefik.http.routers.aac-netbird-backend.priority: '100'
+      traefik.http.services.aac-netbird-server.loadbalancer.server.port: '80'
+      traefik.http.services.aac-netbird-server-h2c.loadbalancer.server.port: '80'
+      traefik.http.services.aac-netbird-server-h2c.loadbalancer.server.scheme: h2c
+vars:
+  TZ: Europe/Berlin
+  NB_TRUSTED_PROXY: 0.0.0.0/0
+  NETBIRD_DOMAIN: netbird.example.com
+  NETBIRD_BASE_URL: https://{{ vars.NETBIRD_DOMAIN }}
+  NETBIRD_EXPOSED_ADDRESS: '{{ vars.NETBIRD_BASE_URL }}:443'
+  NETBIRD_OIDC_ISSUER: '{{ vars.NETBIRD_BASE_URL }}/oauth2'
+  NETBIRD_DASHBOARD_REDIRECT_URI: '{{ vars.NETBIRD_BASE_URL }}{{ vars.AUTH_REDIRECT_URI
+    }}'
+  NETBIRD_DASHBOARD_SILENT_REDIRECT_URI: '{{ vars.NETBIRD_BASE_URL }}{{ vars.AUTH_SILENT_REDIRECT_URI
+    }}'
+  NETBIRD_CLI_REDIRECT_URI: http://localhost:53000/
+  NETBIRD_MGMT_API_ENDPOINT: '{{ vars.NETBIRD_BASE_URL }}'
+  NETBIRD_MGMT_GRPC_API_ENDPOINT: '{{ vars.NETBIRD_BASE_URL }}'
+  AUTH_AUDIENCE: netbird-dashboard
+  AUTH_CLIENT_ID: netbird-dashboard
+  AUTH_CLIENT_SECRET: ''
+  AUTH_AUTHORITY: '{{ vars.NETBIRD_OIDC_ISSUER }}'
+  USE_AUTH0: 'false'
+  AUTH_SUPPORTED_SCOPES: openid profile email groups
+  AUTH_REDIRECT_URI: /nb-auth
+  AUTH_SILENT_REDIRECT_URI: /nb-silent-auth
+  NGINX_SSL_PORT: '443'
+  LETSENCRYPT_DOMAIN: none

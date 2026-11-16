@@ -1,0 +1,116 @@
+services:
+  # --- Main Application Service ---
+  aac-netbird:
+    image: "netbirdio/dashboard:v2.92.0"
+    container_name: "aac-netbird"
+    hostname: "netbird"
+    restart: "unless-stopped"
+
+
+    environment:
+      NETBIRD_MGMT_API_ENDPOINT: "https://netbird.example.com"
+      NETBIRD_MGMT_GRPC_API_ENDPOINT: "https://netbird.example.com"
+      AUTH_AUDIENCE: "netbird-dashboard"
+      AUTH_CLIENT_ID: "netbird-dashboard"
+      AUTH_CLIENT_SECRET: ""
+      AUTH_AUTHORITY: "https://netbird.example.com/oauth2"
+      USE_AUTH0: "false"
+      AUTH_SUPPORTED_SCOPES: "openid profile email groups"
+      AUTH_REDIRECT_URI: "/nb-auth"
+      AUTH_SILENT_REDIRECT_URI: "/nb-silent-auth"
+      NGINX_SSL_PORT: "443"
+      LETSENCRYPT_DOMAIN: "none"
+      TZ: "Europe/Berlin"
+
+
+
+    networks:
+      - interconnect
+      - secured
+      - stack_internal
+
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.aac-netbird.rule: "Host(`netbird.example.com`)"
+      traefik.http.routers.aac-netbird.entrypoints: "websecure"
+      traefik.http.routers.aac-netbird.tls: "true"
+      traefik.http.routers.aac-netbird.tls.certresolver: "ionos"
+      traefik.docker.network: "services-secured"
+      traefik.http.services.aac-netbird.loadbalancer.server.port: "80"
+      traefik.http.services.aac-netbird.loadbalancer.server.scheme: "http"
+      auto-dns.createWildcard.aac-netbird: "false"
+      auto-dns.customDNS.aac-netbird: "true"
+      auto-dns.customDOMAIN.aac-netbird: "example.com"
+      auto-dns.customHost.aac-netbird: "netbird"
+      homepage.group: "Management"
+      homepage.name: "NetBird"
+      homepage.href: "https://netbird.example.com"
+      homepage.icon: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/netbird.png"
+      homepage.description: "NetBird self-hosted VPN mesh (Dashboard + Management/Signal/Relay/STUN)"
+
+
+    depends_on:
+      aac-netbird-server:
+        condition: service_started
+
+
+  # --- Service Dependencies (Sidecars) ---
+  aac-netbird-server:
+    image: "netbirdio/netbird-server:0.79.0"
+    container_name: "aac-netbird-server"
+    restart: "always"
+    
+    command:
+      - "--config"
+      - "/etc/netbird/config.yaml"
+
+    env_file:
+      - .env
+    ports:
+      - "3478:3478/udp"
+      - "33073:33073/tcp"
+
+    volumes:
+      - "/export/docker/aac-netbird/nb_data:/var/lib/netbird"
+      - "/export/docker/aac-netbird/nb_config:/etc/netbird"
+
+    networks:
+      - secured
+      - stack_internal
+
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "services-secured"
+      traefik.http.routers.aac-netbird-grpc.rule: "Host(`netbird.example.com`) && (PathPrefix(`/signalexchange.SignalExchange/`) || PathPrefix(`/management.ManagementService/`) || PathPrefix(`/management.ProxyService/`))"
+      traefik.http.routers.aac-netbird-grpc.entrypoints: "websecure"
+      traefik.http.routers.aac-netbird-grpc.tls: "true"
+      traefik.http.routers.aac-netbird-grpc.tls.certresolver: "ionos"
+      traefik.http.routers.aac-netbird-grpc.service: "aac-netbird-server-h2c"
+      traefik.http.routers.aac-netbird-grpc.priority: "100"
+      traefik.http.routers.aac-netbird-backend.rule: "Host(`netbird.example.com`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`) || PathPrefix(`/api`) || PathPrefix(`/oauth2`))"
+      traefik.http.routers.aac-netbird-backend.entrypoints: "websecure"
+      traefik.http.routers.aac-netbird-backend.tls: "true"
+      traefik.http.routers.aac-netbird-backend.tls.certresolver: "ionos"
+      traefik.http.routers.aac-netbird-backend.service: "aac-netbird-server"
+      traefik.http.routers.aac-netbird-backend.priority: "100"
+      traefik.http.services.aac-netbird-server.loadbalancer.server.port: "80"
+      traefik.http.services.aac-netbird-server-h2c.loadbalancer.server.port: "80"
+      traefik.http.services.aac-netbird-server-h2c.loadbalancer.server.scheme: "h2c"
+
+
+
+
+networks:
+  secured:
+    name: "services-secured"
+    external: true
+  exposed:
+    name: "services-exposed"
+    external: true
+  interconnect:
+    name: "docker-default"
+    external: true
+  stack_internal:
+    name: "aac-netbird_stack_internal"
+    driver: "bridge"
+
